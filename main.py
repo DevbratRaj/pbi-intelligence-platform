@@ -18,111 +18,236 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# ── Theme initialisation ───────────────────────────────────────────────────
+if "dark_mode" not in st.session_state:
+    st.session_state["dark_mode"] = False
+
+_DM = st.session_state["dark_mode"]
+
+# ── CSS variables for light / dark ────────────────────────────────────────
+_LIGHT = dict(
+    bg_page="#f8fafc",
+    bg_card="#ffffff",
+    bg_card2="#f1f5f9",
+    text_primary="#0f172a",
+    text_secondary="#475569",
+    text_muted="#94a3b8",
+    border="#e2e8f0",
+    badge_bg="#eef2ff",
+    badge_fg="#4338ca",
+    pill_bg="#f1f5f9",
+    pill_fg="#475569",
+    accent="#4338ca",
+    sidebar_bg="#0d1b2a",
+    sidebar_fg="#e0e8f0",
+    sidebar_border="#1e3a5f",
+    divider="#e2e8f0",
+    shadow="rgba(0,0,0,0.06)",
+    progress_bg="#f1f5f9",
+    progress_fg="#334155",
+)
+_DARK = dict(
+    bg_page="#0f172a",
+    bg_card="#1e293b",
+    bg_card2="#0f172a",
+    text_primary="#f1f5f9",
+    text_secondary="#94a3b8",
+    text_muted="#64748b",
+    border="#334155",
+    badge_bg="#1e1b4b",
+    badge_fg="#818cf8",
+    pill_bg="#1e293b",
+    pill_fg="#94a3b8",
+    accent="#818cf8",
+    sidebar_bg="#020817",
+    sidebar_fg="#cbd5e1",
+    sidebar_border="#1e293b",
+    divider="#1e293b",
+    shadow="rgba(0,0,0,0.4)",
+    progress_bg="#1e293b",
+    progress_fg="#94a3b8",
+)
+_T = _DARK if _DM else _LIGHT
+
 # ── Global styles ─────────────────────────────────────────────────────────────
 st.markdown(
-    """
+    f"""
     <style>
-        /* Sidebar */
-        [data-testid="stSidebar"] { background-color: #0d1b2a; }
-        [data-testid="stSidebar"] * { color: #e0e8f0; }
-        [data-testid="stSidebar"] h1 {
-            color: #ffffff; font-size: 1.4rem; font-weight: 700;
-            padding-bottom: 0.5rem; border-bottom: 1px solid #1e3a5f;
-        }
+        /* ── Page background ── */
+        .stApp, [data-testid="stAppViewContainer"] {{
+            background-color: {_T['bg_page']} !important;
+        }}
+        [data-testid="stHeader"] {{
+            background-color: {_T['bg_page']} !important;
+        }}
 
-        /* Landing hero */
-        .hero-wrap {
-            max-width: 680px;
+        /* ── Sidebar ── */
+        [data-testid="stSidebar"] {{
+            background-color: {_T['sidebar_bg']} !important;
+            border-right: 1px solid {_T['sidebar_border']};
+        }}
+        [data-testid="stSidebar"] * {{ color: {_T['sidebar_fg']} !important; }}
+        [data-testid="stSidebar"] .sidebar-brand {{
+            color: #ffffff !important;
+            font-size: 1.05rem;
+            font-weight: 700;
+            letter-spacing: -0.01em;
+            padding: 0.6rem 0 0.8rem;
+            border-bottom: 1px solid {_T['sidebar_border']};
+            margin-bottom: 0.5rem;
+        }}
+        [data-testid="stSidebar"] hr {{
+            border-color: {_T['sidebar_border']} !important;
+        }}
+
+        /* ── Body typography ── */
+        body, p, li, span, div, label {{
+            color: {_T['text_primary']};
+        }}
+
+        /* ── Cards / containers ── */
+        [data-testid="stVerticalBlockBorderWrapper"] > div > div {{
+            background: {_T['bg_card']} !important;
+            border-color: {_T['border']} !important;
+            border-radius: 14px !important;
+            box-shadow: 0 2px 16px {_T['shadow']} !important;
+        }}
+
+        /* ── Inputs ── */
+        [data-testid="stTextInput"] input,
+        [data-testid="stFileUploaderDropzone"] {{
+            background: {_T['bg_card2']} !important;
+            border-color: {_T['border']} !important;
+            color: {_T['text_primary']} !important;
+        }}
+
+        /* ── Primary button polish ── */
+        .stButton > button[kind="primary"] {{
+            background: linear-gradient(135deg, {_T['accent']}, #6d28d9) !important;
+            border: none !important;
+            border-radius: 10px !important;
+            font-weight: 600 !important;
+            letter-spacing: 0.02em !important;
+            padding: 0.55rem 1.4rem !important;
+            transition: opacity 0.15s;
+        }}
+        .stButton > button[kind="primary"]:hover {{ opacity: 0.88; }}
+
+        /* ── Dividers / rules ── */
+        hr {{ border-color: {_T['divider']} !important; }}
+
+        /* ── Hero ── */
+        .hero-wrap {{
+            max-width: 700px;
             margin: 0 auto;
             text-align: center;
-            padding: 3rem 0 1.5rem;
-        }
-        .hero-badge {
+            padding: 3.5rem 0 1.5rem;
+        }}
+        .hero-badge {{
             display: inline-block;
-            background: #eef2ff;
-            color: #4338ca;
+            background: {_T['badge_bg']};
+            color: {_T['badge_fg']};
             border-radius: 999px;
-            font-size: 0.78rem;
-            font-weight: 600;
-            letter-spacing: 0.05em;
-            padding: 4px 14px;
-            margin-bottom: 1.1rem;
-        }
-        .hero-title {
-            font-size: 2.6rem;
-            font-weight: 800;
-            color: #0f172a;
-            line-height: 1.15;
-            margin: 0 0 0.65rem;
-        }
-        .hero-sub {
-            font-size: 1.05rem;
-            color: #475569;
-            margin: 0 0 2rem;
-            line-height: 1.6;
-        }
-
-        /* Upload card */
-        .upload-card {
-            background: #ffffff;
-            border: 1.5px solid #e2e8f0;
-            border-radius: 14px;
-            padding: 2rem 2.2rem;
-            box-shadow: 0 2px 12px rgba(0,0,0,0.05);
-            max-width: 680px;
-            margin: 0 auto 1.4rem;
-        }
-        .section-label {
-            font-size: 0.78rem;
+            font-size: 0.75rem;
             font-weight: 700;
-            color: #64748b;
-            letter-spacing: 0.07em;
+            letter-spacing: 0.06em;
             text-transform: uppercase;
-            margin-bottom: 0.35rem;
-        }
-        .divider-light {
-            border: none;
-            border-top: 1px solid #f1f5f9;
-            margin: 1.4rem 0;
-        }
+            padding: 5px 16px;
+            margin-bottom: 1.2rem;
+            border: 1px solid {_T['border']};
+        }}
+        .hero-title {{
+            font-size: 2.8rem;
+            font-weight: 800;
+            color: {_T['text_primary']};
+            line-height: 1.1;
+            margin: 0 0 0.7rem;
+            letter-spacing: -0.02em;
+        }}
+        .hero-sub {{
+            font-size: 1.05rem;
+            color: {_T['text_secondary']};
+            margin: 0 0 2rem;
+            line-height: 1.7;
+        }}
 
-        /* Feature pills */
-        .feature-row {
+        /* ── Section labels ── */
+        .section-label {{
+            font-size: 0.72rem;
+            font-weight: 700;
+            color: {_T['text_muted']};
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            margin-bottom: 0.4rem;
+        }}
+        .divider-light {{
+            border: none;
+            border-top: 1px solid {_T['divider']};
+            margin: 1.4rem 0;
+        }}
+
+        /* ── Feature pills ── */
+        .feature-row {{
             display: flex;
             justify-content: center;
-            gap: 10px;
+            gap: 8px;
             flex-wrap: wrap;
             margin-top: 2rem;
-        }
-        .feature-pill {
-            background: #f8fafc;
-            border: 1px solid #e2e8f0;
+            padding-bottom: 1rem;
+        }}
+        .feature-pill {{
+            background: {_T['pill_bg']};
+            border: 1px solid {_T['border']};
             border-radius: 999px;
-            padding: 5px 14px;
-            font-size: 0.8rem;
-            color: #475569;
-        }
+            padding: 5px 15px;
+            font-size: 0.79rem;
+            color: {_T['pill_fg']};
+            font-weight: 500;
+        }}
+
+        /* ── Streamlit caption / small text ── */
+        [data-testid="stCaptionContainer"] p {{
+            color: {_T['text_muted']} !important;
+        }}
+        [data-testid="stMarkdownContainer"] p {{
+            color: {_T['text_secondary']};
+        }}
     </style>
     """,
     unsafe_allow_html=True,
 )
 
 with st.sidebar:
-    st.markdown("<h1>PBI Intelligence Platform</h1>", unsafe_allow_html=True)
+    st.markdown(
+        '<div class="sidebar-brand">📊 PBI Intelligence</div>',
+        unsafe_allow_html=True,
+    )
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # ── Theme toggle ──────────────────────────────────────────────────
+    _new_dm = st.toggle(
+        "🌙 Dark Mode",
+        value=st.session_state["dark_mode"],
+        key="_theme_toggle",
+    )
+    if _new_dm != st.session_state["dark_mode"]:
+        st.session_state["dark_mode"] = _new_dm
+        st.rerun()
+
     st.markdown("---")
 
 # ── Hero ──────────────────────────────────────────────────────────────────────
 _, hero_col, _ = st.columns([1, 2.4, 1])
 with hero_col:
     st.markdown(
-        """
-        <div class="hero-wrap">
-          <div class="hero-badge">⚡ Power BI Audit Tool</div>
-          <div class="hero-title">PBI Intelligence Platform</div>
-          <div class="hero-sub">
-            Upload a Power BI report to detect performance anti-patterns,
-            unused measures, data-quality issues, and governance gaps — instantly.
-          </div>
+            f"""
+            <div class="hero-wrap">
+              <div class="hero-badge">⚡ Power BI Audit Tool</div>
+              <div class="hero-title">PBI Intelligence<br>Platform</div>
+              <div class="hero-sub">
+                Upload a Power BI report to instantly surface performance
+                anti-patterns, unused measures, data-quality issues, and
+                governance gaps — all in one place.
         </div>
         """,
         unsafe_allow_html=True,
@@ -240,11 +365,12 @@ if start_clicked and not st.session_state["scan_complete"]:
             status_box.markdown(
                 f"""
                 <div style="
-                    background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;
-                    padding:10px 16px;font-size:0.92rem;color:#334155;margin-bottom:6px;
+                    background:{_T['progress_bg']};border:1px solid {_T['border']};
+                    border-radius:8px;padding:10px 16px;font-size:0.92rem;
+                    color:{_T['progress_fg']};margin-bottom:6px;
                     display:flex;align-items:center;gap:8px">
                   <span>{_label}</span>
-                  <span style="margin-left:auto;color:#94a3b8;font-size:0.8rem">{_pct}%</span>
+                  <span style="margin-left:auto;color:{_T['text_muted']};font-size:0.8rem">{_pct}%</span>
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -384,19 +510,21 @@ if st.session_state.get("scan_complete"):
             (_sc3, "📋 Governance",  _gov_score,  _gov_src),
         ]:
             _g, _c, _bg = _grade(_score)
+            # In dark mode, lighten card bg slightly for contrast
+            _card_bg = _T['bg_card'] if _DM else _bg
             _src_badge = (
-                '<span style="font-size:0.65rem;color:#2e7d32;font-weight:600">✔ exact</span>'
+                f'<span style="font-size:0.65rem;color:#22c55e;font-weight:700;">✔ exact</span>'
                 if _src == "exact" else
-                '<span style="font-size:0.65rem;color:#888">~ estimated</span>'
+                f'<span style="font-size:0.65rem;color:{_T["text_muted"]}">~ estimated</span>'
             )
             with _col:
                 st.markdown(
-                    f'<div style="background:{_bg};border:1.5px solid {_c};border-radius:10px;'
-                    f'padding:14px 10px;text-align:center">'
-                    f'<div style="font-size:0.85rem;color:#555;font-weight:600">{_label}</div>'
-                    f'<div style="font-size:2.2rem;font-weight:800;color:{_c};line-height:1.1">{_score}</div>'
-                    f'<div style="font-size:0.75rem;color:{_c};font-weight:600">{_g}</div>'
-                    f'<div style="margin-top:4px">{_src_badge}</div>'
+                    f'<div style="background:{_card_bg};border:1.5px solid {_c};border-radius:12px;'
+                    f'padding:18px 12px;text-align:center;box-shadow:0 2px 12px {_T["shadow"]}">'
+                    f'<div style="font-size:0.82rem;color:{_T["text_secondary"]};font-weight:600;letter-spacing:0.03em">{_label}</div>'
+                    f'<div style="font-size:2.4rem;font-weight:800;color:{_c};line-height:1.1;margin:6px 0 2px">{_score}</div>'
+                    f'<div style="font-size:0.75rem;color:{_c};font-weight:700;letter-spacing:0.04em;text-transform:uppercase">{_g}</div>'
+                    f'<div style="margin-top:6px">{_src_badge}</div>'
                     f'</div>',
                     unsafe_allow_html=True,
                 )
