@@ -31,18 +31,36 @@ STORE_DIR.mkdir(exist_ok=True)
 _PBI_SCOPE = ["https://analysis.windows.net/powerbi/api/.default"]
 _CLIENT_ID = "04b07795-8542-4c4c-8b8b-6c5c1f2b9543"  # Azure CLI public client
 
-def _msal_app(tenant_id: str):
+def _discover_tenant(email: str) -> str:
+    """Auto-discover tenant ID from the email's domain via OIDC metadata."""
+    domain = email.strip().split("@")[-1]
+    try:
+        r = requests.get(
+            f"https://login.microsoftonline.com/{domain}/.well-known/openid-configuration",
+            timeout=10,
+        )
+        if r.ok:
+            issuer = r.json().get("issuer", "")
+            # issuer = https://login.microsoftonline.com/{tenant_guid}/v2.0
+            for part in issuer.rstrip("/").split("/"):
+                if len(part) == 36 and part.count("-") == 4:
+                    return part
+    except Exception:
+        pass
+    return domain  # fallback: use domain directly as authority
+
+def _msal_app(tenant: str):
     try:
         import msal
     except ImportError:
         raise RuntimeError("`msal` package not installed. Run: pip install msal")
-    authority = f"https://login.microsoftonline.com/{tenant_id.strip()}"
+    authority = f"https://login.microsoftonline.com/{tenant}"
     return msal.PublicClientApplication(_CLIENT_ID, authority=authority)
 
-def acquire_token_by_password(tenant_id: str, username: str, password: str) -> str:
-    """Sign in with Power BI email + password (ROPC flow). No browser needed."""
-    app = _msal_app(tenant_id)
-    # Try cached token first
+def acquire_token_by_password(username: str, password: str) -> str:
+    """Sign in with Power BI work email + password. Tenant is auto-discovered."""
+    tenant = _discover_tenant(username)
+    app = _msal_app(tenant)
     accounts = app.get_accounts(username=username)
     if accounts:
         result = app.acquire_token_silent(_PBI_SCOPE, account=accounts[0])
@@ -288,12 +306,6 @@ DEFAULT_DS = "38767ebb-5030-41b3-a15b-23a00bb73cfa"
 
 with st.sidebar:
     st.markdown("### 🔐 Power BI Sign-In")
-    tenant_id = st.text_input(
-        "Azure Tenant ID",
-        value=st.session_state.get("pbi_tenant_id", ""),
-        placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
-        help="portal.azure.com → Azure Active Directory → Overview → Tenant ID",
-    )
     pbi_username = st.text_input(
         "Work Email",
         value=st.session_state.get("pbi_username", ""),
@@ -305,9 +317,7 @@ with st.sidebar:
         placeholder="Your Power BI password",
     )
     sign_in_btn = st.button("🔐 Sign In", use_container_width=True, type="primary",
-                            disabled=not (tenant_id and pbi_username and pbi_password))
-    if tenant_id:
-        st.session_state["pbi_tenant_id"] = tenant_id
+                            disabled=not (pbi_username and pbi_password))
     if pbi_username:
         st.session_state["pbi_username"] = pbi_username
     st.markdown("---")
@@ -335,10 +345,10 @@ if "pbi_token" not in st.session_state:
     st.session_state["pbi_token"] = None
 
 # Handle sign-in button click
-if sign_in_btn and pbi_username and pbi_password and tenant_id:
+if sign_in_btn and pbi_username and pbi_password:
     with st.spinner("Signing in…"):
         try:
-            tok = acquire_token_by_password(tenant_id, pbi_username, pbi_password)
+            tok = acquire_token_by_password(pbi_username, pbi_password)
             st.session_state["pbi_token"] = tok
             st.rerun()
         except Exception as e:
