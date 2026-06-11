@@ -221,17 +221,18 @@ with st.sidebar:
         model = st.selectbox(
             "Model",
             [
-                "claude-3-7-sonnet",
-                "claude-3-5-sonnet",
                 "gpt-4o",
                 "gpt-4o-mini",
                 "Meta-Llama-3.1-70B-Instruct",
-                "Mistral-large",
+                "Mistral-large-2407",
                 "Phi-4",
+                "DeepSeek-R1",
+                "xai-grok-3",
             ],
             index=0,
             key="dax_doc_model",
         )
+        st.caption("💡 For Claude, switch to the **Anthropic (Claude)** provider above.")
         azure_endpoint = None
         azure_deployment = None
 
