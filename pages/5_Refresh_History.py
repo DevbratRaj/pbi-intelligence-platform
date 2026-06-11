@@ -27,7 +27,7 @@ PBI         = "https://api.powerbi.com/v1.0/myorg"
 STORE_DIR   = Path(__file__).parent.parent / "refresh_store"
 STORE_DIR.mkdir(exist_ok=True)
 
-# ── Token acquisition — MSAL (no az login needed) ────────────────────────────
+# ── Token acquisition — MSAL username/password (ROPC) ────────────────────────
 _PBI_SCOPE = ["https://analysis.windows.net/powerbi/api/.default"]
 _CLIENT_ID = "04b07795-8542-4c4c-8b8b-6c5c1f2b9543"  # Azure CLI public client
 
@@ -39,25 +39,24 @@ def _msal_app(tenant_id: str):
     authority = f"https://login.microsoftonline.com/{tenant_id.strip()}"
     return msal.PublicClientApplication(_CLIENT_ID, authority=authority)
 
-def get_token_device_code(tenant_id: str) -> tuple:
-    """
-    Start a device-code flow for the given tenant.
-    Returns (user_code, verification_uri, flow).
-    """
+def acquire_token_by_password(tenant_id: str, username: str, password: str) -> str:
+    """Sign in with Power BI email + password (ROPC flow). No browser needed."""
     app = _msal_app(tenant_id)
-    flow = app.initiate_device_flow(scopes=_PBI_SCOPE)
-    if "error" in flow:
-        raise RuntimeError(f"Device flow error: {flow.get('error_description', flow)}")
-    return flow["user_code"], flow["verification_uri"], flow
-
-def acquire_token_from_flow(flow: dict, tenant_id: str) -> str:
-    """Poll until user completes the device-code login."""
-    import msal
-    app = _msal_app(tenant_id)
-    result = app.acquire_token_by_device_flow(flow)
+    # Try cached token first
+    accounts = app.get_accounts(username=username)
+    if accounts:
+        result = app.acquire_token_silent(_PBI_SCOPE, account=accounts[0])
+        if result and "access_token" in result:
+            return result["access_token"]
+    result = app.acquire_token_by_username_password(
+        username=username.strip(),
+        password=password,
+        scopes=_PBI_SCOPE,
+    )
     if "access_token" in result:
         return result["access_token"]
-    raise RuntimeError(result.get("error_description") or result.get("error") or "Auth failed")
+    err = result.get("error_description") or result.get("error") or str(result)
+    raise RuntimeError(err)
 
 # ── API helpers ───────────────────────────────────────────────────────────────
 def fetch_dataset_name(token, wid, did):
@@ -288,16 +287,29 @@ DEFAULT_WS = "466083da-5ff6-432b-8c54-8d39393bc81c"
 DEFAULT_DS = "38767ebb-5030-41b3-a15b-23a00bb73cfa"
 
 with st.sidebar:
-    st.markdown("### � Authentication")
+    st.markdown("### 🔐 Power BI Sign-In")
     tenant_id = st.text_input(
         "Azure Tenant ID",
         value=st.session_state.get("pbi_tenant_id", ""),
         placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
-        help="Find it at: portal.azure.com → Azure Active Directory → Overview → Tenant ID",
+        help="portal.azure.com → Azure Active Directory → Overview → Tenant ID",
     )
+    pbi_username = st.text_input(
+        "Work Email",
+        value=st.session_state.get("pbi_username", ""),
+        placeholder="you@company.com",
+    )
+    pbi_password = st.text_input(
+        "Password",
+        type="password",
+        placeholder="Your Power BI password",
+    )
+    sign_in_btn = st.button("🔐 Sign In", use_container_width=True, type="primary",
+                            disabled=not (tenant_id and pbi_username and pbi_password))
     if tenant_id:
         st.session_state["pbi_tenant_id"] = tenant_id
-    st.caption("[How to find your Tenant ID →](https://portal.azure.com/#blade/Microsoft_AAD_IAM/ActiveDirectoryMenuBlade/Overview)")
+    if pbi_username:
+        st.session_state["pbi_username"] = pbi_username
     st.markdown("---")
     st.markdown("### �📋 Datasets")
     workspace_id = st.text_input("Workspace ID", value=DEFAULT_WS)
@@ -321,54 +333,24 @@ st.title(f"🔄 Refresh History — Last {days_to_show} Days")
 # ── Authentication ────────────────────────────────────────────────────────────
 if "pbi_token" not in st.session_state:
     st.session_state["pbi_token"] = None
-if "pbi_device_flow" not in st.session_state:
-    st.session_state["pbi_device_flow"] = None
+
+# Handle sign-in button click
+if sign_in_btn and pbi_username and pbi_password and tenant_id:
+    with st.spinner("Signing in…"):
+        try:
+            tok = acquire_token_by_password(tenant_id, pbi_username, pbi_password)
+            st.session_state["pbi_token"] = tok
+            st.rerun()
+        except Exception as e:
+            st.error(f"Sign-in failed: {e}")
+            st.stop()
 
 if not st.session_state["pbi_token"]:
-    if not tenant_id:
-        st.warning("**Enter your Azure Tenant ID** in the sidebar first.  \n"
-                   "Find it at: [portal.azure.com → Azure AD → Overview](https://portal.azure.com/#blade/Microsoft_AAD_IAM/ActiveDirectoryMenuBlade/Overview)",
-                   icon="⚠️")
-        st.stop()
     st.info(
-        "**Sign in to Power BI** to fetch refresh history.\n\n"
-        "Click **Start Sign-In** below — a code will appear. Visit the link, "
-        "enter the code, then click **Complete Sign-In**.",
+        "Enter your **Azure Tenant ID**, **Work Email** and **Password** "
+        "in the sidebar, then click **Sign In**.",
         icon="🔐",
     )
-    col_a, col_b = st.columns(2)
-    with col_a:
-        if st.button("🔐 Start Sign-In", use_container_width=True, type="primary"):
-            st.session_state["pbi_device_flow"] = None  # clear any stale flow
-            try:
-                user_code, url, flow = get_token_device_code(tenant_id)
-                st.session_state["pbi_device_flow"] = flow
-                st.session_state["pbi_device_code"] = user_code
-                st.session_state["pbi_device_url"]  = url
-            except Exception as e:
-                st.error(str(e))
-
-    if st.session_state.get("pbi_device_flow"):
-        st.markdown(
-            f"**Step 1:** Go to → **[{st.session_state['pbi_device_url']}]"
-            f"({st.session_state['pbi_device_url']})**"
-        )
-        st.markdown(
-            f"**Step 2:** Enter code → "
-            f"`{st.session_state['pbi_device_code']}`"
-        )
-        with col_b:
-            if st.button("✅ Complete Sign-In", use_container_width=True):
-                with st.spinner("Checking sign-in…"):
-                    try:
-                        tok = acquire_token_from_flow(
-                            st.session_state["pbi_device_flow"], tenant_id
-                        )
-                        st.session_state["pbi_token"] = tok
-                        st.session_state["pbi_device_flow"] = None
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Sign-in failed: {e}")
     st.stop()
 
 token = st.session_state["pbi_token"]
