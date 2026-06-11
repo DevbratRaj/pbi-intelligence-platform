@@ -7,3 +7,5 @@ zipfile36
 msal
 pytz
 openai
+anthropic
+

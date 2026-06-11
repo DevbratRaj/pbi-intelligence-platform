@@ -70,14 +70,17 @@ def _secret(key: str, default: str = "") -> str:
     except Exception:
         return default
 
-_SECRET_GITHUB = _secret("GITHUB_TOKEN")
-_SECRET_GROQ   = _secret("GROQ_API_KEY")
-_SECRET_OPENAI = _secret("OPENAI_API_KEY")
+_SECRET_GITHUB    = _secret("GITHUB_TOKEN")
+_SECRET_GROQ      = _secret("GROQ_API_KEY")
+_SECRET_OPENAI    = _secret("OPENAI_API_KEY")
+_SECRET_ANTHROPIC = _secret("ANTHROPIC_API_KEY")
 
 # Pick the best default provider based on available secrets
 if "dax_doc_provider" not in st.session_state:
-    if _SECRET_GITHUB:
-        st.session_state["dax_doc_provider"] = "GitHub Models"
+    if _SECRET_ANTHROPIC:
+        st.session_state["dax_doc_provider"] = "Anthropic (Claude)"
+    elif _SECRET_GITHUB:
+        st.session_state["dax_doc_provider"] = "GitHub Models (Claude / GPT-4o)"
     elif _SECRET_GROQ:
         st.session_state["dax_doc_provider"] = "Groq (Free)"
     elif _SECRET_OPENAI:
@@ -88,17 +91,30 @@ if "dax_doc_provider" not in st.session_state:
 # ─────────────────────────────────────────────────────────────────────────────
 # Sidebar — API key + model config
 # ─────────────────────────────────────────────────────────────────────────────
-_PROVIDERS = ["⚡ Local (No API — instant)", "Ollama (Local — Free)", "Groq (Free)", "GitHub Models", "OpenAI", "Azure OpenAI"]
+_PROVIDERS = [
+    "⚡ Local (No API — instant)",
+    "GitHub Models (Claude / GPT-4o)",
+    "Anthropic (Claude)",
+    "Groq (Free)",
+    "Ollama (Local — Free)",
+    "OpenAI",
+    "Azure OpenAI",
+]
 
 with st.sidebar:
     st.markdown("<h1>PBI Intelligence Platform</h1>", unsafe_allow_html=True)
     st.markdown("---")
     st.markdown("### 🔑 AI Configuration")
 
+    _default_idx = _PROVIDERS.index(
+        st.session_state.get("dax_doc_provider", _PROVIDERS[0])
+        if st.session_state.get("dax_doc_provider") in _PROVIDERS
+        else _PROVIDERS[0]
+    )
     provider = st.radio(
         "Provider",
         _PROVIDERS,
-        index=_PROVIDERS.index(st.session_state["dax_doc_provider"]),
+        index=_default_idx,
         key="dax_doc_provider",
     )
 
@@ -179,7 +195,7 @@ with st.sidebar:
         azure_endpoint = None
         azure_deployment = None
 
-    elif provider == "GitHub Models":
+    elif provider == "GitHub Models (Claude / GPT-4o)":
         if _SECRET_GITHUB:
             st.markdown(
                 "<div style='background:#f0fdf4;border-radius:8px;padding:10px 12px;margin-bottom:8px'>"
@@ -190,21 +206,66 @@ with st.sidebar:
         else:
             st.markdown(
                 "<div style='background:#eff6ff;border-radius:8px;padding:10px 12px;margin-bottom:8px'>"
-                "ℹ️ Requires a <strong>fine-grained</strong> GitHub PAT.<br/>"
-                "<a href='https://github.com/settings/personal-access-tokens/new' "
+                "ℹ️ Requires a GitHub PAT with <strong>Models: Read</strong> permission.<br/>"
+                "<a href='https://github.com/settings/tokens/new' "
                 "target='_blank' style='color:#1d4ed8;font-size:.85rem'>"
-                "Create fine-grained token →</a></div>",
+                "Create token →</a></div>",
                 unsafe_allow_html=True,
             )
             api_key = st.text_input(
                 "GitHub Token",
                 type="password",
                 key="dax_doc_api_key",
-                placeholder="github_pat_...",
+                placeholder="ghp_...",
             )
         model = st.selectbox(
             "Model",
-            ["gpt-4o", "gpt-4o-mini", "Meta-Llama-3.1-70B-Instruct"],
+            [
+                "claude-3-7-sonnet",
+                "claude-3-5-sonnet",
+                "gpt-4o",
+                "gpt-4o-mini",
+                "Meta-Llama-3.1-70B-Instruct",
+                "Mistral-large",
+                "Phi-4",
+            ],
+            index=0,
+            key="dax_doc_model",
+        )
+        azure_endpoint = None
+        azure_deployment = None
+
+    elif provider == "Anthropic (Claude)":
+        if _SECRET_ANTHROPIC:
+            st.markdown(
+                "<div style='background:#f0fdf4;border-radius:8px;padding:10px 12px;margin-bottom:8px'>"
+                "✅ <strong>Anthropic key loaded from secrets.</strong> Ready to use.</div>",
+                unsafe_allow_html=True,
+            )
+            api_key = _SECRET_ANTHROPIC
+        else:
+            st.markdown(
+                "<div style='background:#fdf4ff;border-radius:8px;padding:10px 12px;margin-bottom:8px'>"
+                "🟣 Get a key at <a href='https://console.anthropic.com/keys' "
+                "target='_blank' style='color:#7c3aed;font-size:.85rem'>console.anthropic.com →</a></div>",
+                unsafe_allow_html=True,
+            )
+            api_key = st.text_input(
+                "Anthropic API Key",
+                type="password",
+                key="dax_doc_api_key",
+                placeholder="sk-ant-...",
+            )
+        model = st.selectbox(
+            "Model",
+            [
+                "claude-opus-4-5",
+                "claude-sonnet-4-5",
+                "claude-3-7-sonnet-20250219",
+                "claude-3-5-sonnet-20241022",
+                "claude-3-5-haiku-20241022",
+            ],
+            index=1,
             key="dax_doc_model",
         )
         azure_endpoint = None
@@ -397,30 +458,42 @@ def _friendly_error(exc: Exception, prov: str) -> str:
                 f"Pull it first:\n```\nollama pull {mdl}\n```"
             )
 
-    if prov == "GitHub Models":
+    if prov in ("GitHub Models", "GitHub Models (Claude / GPT-4o)"):
         if is_conn:
             return (
                 "**Cannot reach GitHub Models API** (`models.inference.ai.azure.com`).  \n\n"
                 "Possible causes:\n"
                 "- **Firewall / corporate proxy** blocking the endpoint — try on a personal network\n"
                 "- **Token not entered** — paste your GitHub PAT in the sidebar\n"
-                "- **Token type wrong** — GitHub Models needs a *classic* PAT or a fine-grained PAT "
-                "with **GitHub Models: Read** permission  \n"
-                "[Create a fine-grained token →](https://github.com/settings/personal-access-tokens/new)"
+                "- **Token type wrong** — needs a *classic* PAT or fine-grained PAT "
+                "with **Models: Read** permission  \n"
+                "[Create token →](https://github.com/settings/tokens/new)"
             )
         if is_auth:
             return (
                 "**GitHub token rejected (401/403).**\n\n"
-                "- Make sure you're using a **classic PAT** or a fine-grained PAT with "
-                "**GitHub Models: Read** permission\n"
+                "- Make sure the token has **Models: Read** permission\n"
                 "- Verify the token hasn't expired\n"
                 "[Create a new token →](https://github.com/settings/tokens/new)"
             )
         if is_model:
             return (
                 "**Model not available on GitHub Models.**  \n"
-                "Try `gpt-4o-mini` or `Meta-Llama-3.1-70B-Instruct`."
+                "Try `claude-3-5-sonnet`, `gpt-4o-mini`, or `Meta-Llama-3.1-70B-Instruct`."
             )
+
+    if prov == "Anthropic (Claude)":
+        if is_auth:
+            return (
+                "**Invalid Anthropic API key.**  \n"
+                "Get a key at [console.anthropic.com/keys](https://console.anthropic.com/keys)."
+            )
+        if is_rate:
+            return "**Anthropic rate limit hit.** Wait a few seconds and try again."
+        if is_conn:
+            return "**Cannot reach Anthropic API.** Check your internet connection."
+        if is_model:
+            return "**Model name not recognised.** Try `claude-sonnet-4-5` or `claude-3-5-sonnet-20241022`."
 
     if prov == "Groq (Free)":
         if is_auth:
@@ -470,6 +543,40 @@ def _call_ai(system_prompt: str, user_prompt: str, stream: bool = True):
     except ImportError:
         raise ImportError("The `openai` package is not installed. Run: pip install openai")
 
+    if provider == "Anthropic (Claude)":
+        try:
+            import anthropic as _anthropic
+        except ImportError:
+            raise ImportError("`anthropic` package not installed. Run: pip install anthropic")
+        key = api_key or ""
+        if not key:
+            raise ValueError("No Anthropic API key. Enter your key in the sidebar.")
+        _ant_client = _anthropic.Anthropic(api_key=key)
+        if stream:
+            # Return a generator of openai-compatible fake chunks
+            def _ant_gen():
+                with _ant_client.messages.stream(
+                    model=model,
+                    max_tokens=2048,
+                    system=system_prompt,
+                    messages=[{"role": "user", "content": user_prompt}],
+                ) as s:
+                    for text_delta in s.text_stream:
+                        yield type("_C", (), {
+                            "choices": [type("_Ch", (), {
+                                "delta": type("_D", (), {"content": text_delta})()
+                            })()]
+                        })()
+            return _ant_gen()
+        else:
+            msg = _ant_client.messages.create(
+                model=model,
+                max_tokens=2048,
+                system=system_prompt,
+                messages=[{"role": "user", "content": user_prompt}],
+            )
+            return msg.content[0].text
+
     if provider == "Ollama (Local — Free)":
         host = st.session_state.get("dax_doc_ollama_host", "http://localhost:11434").rstrip("/")
         client = OpenAI(api_key="ollama", base_url=f"{host}/v1")
@@ -482,7 +589,7 @@ def _call_ai(system_prompt: str, user_prompt: str, stream: bool = True):
         client = OpenAI(api_key=key, base_url="https://api.groq.com/openai/v1")
         model_name = model
 
-    elif provider == "GitHub Models":
+    elif provider == "GitHub Models (Claude / GPT-4o)":
         key = api_key or ""
         if not key:
             raise ValueError("No GitHub token provided. Enter your token in the sidebar.")
@@ -550,9 +657,8 @@ st.markdown(
 
 if not api_key:
     st.info(
-        "🔑 **Easiest free option → Groq:** Select **Groq (Free)** in the sidebar, "
-        "sign up at [console.groq.com](https://console.groq.com/keys) (takes 1 minute, no credit card), "
-        "paste your `gsk_...` key, and you're ready."
+        "🔑 **Easiest option → GitHub Models (Claude / GPT-4o):** Your GitHub token is already configured. "
+        "Select it in the sidebar to use **Claude** or **GPT-4o** instantly — no extra signup needed."
     )
 
 st.markdown("---")
