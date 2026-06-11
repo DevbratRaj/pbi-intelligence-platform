@@ -640,6 +640,8 @@ def _stream_to_placeholder(placeholder, response_stream):
     """Stream response chunks into a Streamlit placeholder, return full text."""
     full = ""
     for chunk in response_stream:
+        if not chunk.choices:
+            continue
         delta = chunk.choices[0].delta.content or ""
         full += delta
         placeholder.markdown(full + "▌")
