@@ -28,33 +28,32 @@ STORE_DIR   = Path(__file__).parent.parent / "refresh_store"
 STORE_DIR.mkdir(exist_ok=True)
 
 # ── Token acquisition — MSAL (no az login needed) ────────────────────────────
-_PBI_SCOPE   = ["https://analysis.windows.net/powerbi/api/.default"]
-_CLIENT_ID   = "04b07795-8542-4c4c-8b8b-6c5c1f2b9543"   # Azure CLI public client
-_AUTHORITY   = "https://login.microsoftonline.com/organizations"  # work/school accounts only (Power BI requires AAD)
+_PBI_SCOPE = ["https://analysis.windows.net/powerbi/api/.default"]
+_CLIENT_ID = "04b07795-8542-4c4c-8b8b-6c5c1f2b9543"  # Azure CLI public client
 
-def _msal_app():
+def _msal_app(tenant_id: str):
     try:
         import msal
     except ImportError:
         raise RuntimeError("`msal` package not installed. Run: pip install msal")
-    return msal.PublicClientApplication(_CLIENT_ID, authority=_AUTHORITY)
+    authority = f"https://login.microsoftonline.com/{tenant_id.strip()}"
+    return msal.PublicClientApplication(_CLIENT_ID, authority=authority)
 
-@st.cache_data(ttl=3000, show_spinner=False)
-def get_token_device_code() -> tuple[str, str]:
+def get_token_device_code(tenant_id: str) -> tuple:
     """
-    Start a device-code flow. Returns (user_code, device_auth_url).
-    The user visits the URL, enters the code, and we poll for the token.
+    Start a device-code flow for the given tenant.
+    Returns (user_code, verification_uri, flow).
     """
-    app = _msal_app()
+    app = _msal_app(tenant_id)
     flow = app.initiate_device_flow(scopes=_PBI_SCOPE)
     if "error" in flow:
         raise RuntimeError(f"Device flow error: {flow.get('error_description', flow)}")
     return flow["user_code"], flow["verification_uri"], flow
 
-def acquire_token_from_flow(flow: dict) -> str:
+def acquire_token_from_flow(flow: dict, tenant_id: str) -> str:
     """Poll until user completes the device-code login."""
     import msal
-    app = _msal_app()
+    app = _msal_app(tenant_id)
     result = app.acquire_token_by_device_flow(flow)
     if "access_token" in result:
         return result["access_token"]
@@ -289,7 +288,18 @@ DEFAULT_WS = "466083da-5ff6-432b-8c54-8d39393bc81c"
 DEFAULT_DS = "38767ebb-5030-41b3-a15b-23a00bb73cfa"
 
 with st.sidebar:
-    st.markdown("### 📋 Datasets")
+    st.markdown("### � Authentication")
+    tenant_id = st.text_input(
+        "Azure Tenant ID",
+        value=st.session_state.get("pbi_tenant_id", ""),
+        placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+        help="Find it at: portal.azure.com → Azure Active Directory → Overview → Tenant ID",
+    )
+    if tenant_id:
+        st.session_state["pbi_tenant_id"] = tenant_id
+    st.caption("[How to find your Tenant ID →](https://portal.azure.com/#blade/Microsoft_AAD_IAM/ActiveDirectoryMenuBlade/Overview)")
+    st.markdown("---")
+    st.markdown("### �📋 Datasets")
     workspace_id = st.text_input("Workspace ID", value=DEFAULT_WS)
     st.markdown("**Dataset IDs** (one per line):")
     datasets_raw = st.text_area("", value=DEFAULT_DS, height=130,
@@ -315,6 +325,11 @@ if "pbi_device_flow" not in st.session_state:
     st.session_state["pbi_device_flow"] = None
 
 if not st.session_state["pbi_token"]:
+    if not tenant_id:
+        st.warning("**Enter your Azure Tenant ID** in the sidebar first.  \n"
+                   "Find it at: [portal.azure.com → Azure AD → Overview](https://portal.azure.com/#blade/Microsoft_AAD_IAM/ActiveDirectoryMenuBlade/Overview)",
+                   icon="⚠️")
+        st.stop()
     st.info(
         "**Sign in to Power BI** to fetch refresh history.\n\n"
         "Click **Start Sign-In** below — a code will appear. Visit the link, "
@@ -325,9 +340,8 @@ if not st.session_state["pbi_token"]:
     with col_a:
         if st.button("🔐 Start Sign-In", use_container_width=True, type="primary"):
             st.session_state["pbi_device_flow"] = None  # clear any stale flow
-            get_token_device_code.clear()
             try:
-                user_code, url, flow = get_token_device_code()
+                user_code, url, flow = get_token_device_code(tenant_id)
                 st.session_state["pbi_device_flow"] = flow
                 st.session_state["pbi_device_code"] = user_code
                 st.session_state["pbi_device_url"]  = url
@@ -347,7 +361,9 @@ if not st.session_state["pbi_token"]:
             if st.button("✅ Complete Sign-In", use_container_width=True):
                 with st.spinner("Checking sign-in…"):
                     try:
-                        tok = acquire_token_from_flow(st.session_state["pbi_device_flow"])
+                        tok = acquire_token_from_flow(
+                            st.session_state["pbi_device_flow"], tenant_id
+                        )
                         st.session_state["pbi_token"] = tok
                         st.session_state["pbi_device_flow"] = None
                         st.rerun()
