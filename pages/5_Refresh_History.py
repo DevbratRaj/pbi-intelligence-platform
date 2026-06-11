@@ -29,8 +29,8 @@ STORE_DIR.mkdir(exist_ok=True)
 
 # ── Token acquisition — MSAL (no az login needed) ────────────────────────────
 _PBI_SCOPE   = ["https://analysis.windows.net/powerbi/api/.default"]
-_CLIENT_ID   = "04b07795-8542-4c4c-8b8b-6c5c1f2b9543"   # Azure CLI public client (works for personal & org accounts)
-_AUTHORITY   = "https://login.microsoftonline.com/common"
+_CLIENT_ID   = "04b07795-8542-4c4c-8b8b-6c5c1f2b9543"   # Azure CLI public client
+_AUTHORITY   = "https://login.microsoftonline.com/organizations"  # work/school accounts only (Power BI requires AAD)
 
 def _msal_app():
     try:
@@ -324,6 +324,8 @@ if not st.session_state["pbi_token"]:
     col_a, col_b = st.columns(2)
     with col_a:
         if st.button("🔐 Start Sign-In", use_container_width=True, type="primary"):
+            st.session_state["pbi_device_flow"] = None  # clear any stale flow
+            get_token_device_code.clear()
             try:
                 user_code, url, flow = get_token_device_code()
                 st.session_state["pbi_device_flow"] = flow
