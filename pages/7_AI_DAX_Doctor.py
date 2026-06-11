@@ -560,6 +560,41 @@ with tab_explain:
     if st.button("🔍 Explain this measure", type="primary", key="btn_explain", use_container_width=True):
         if not explain_dax.strip():
             st.warning("Paste a DAX expression first.")
+        elif provider == "⚡ Local (No API — instant)":
+            desc = _local_describe(
+                explain_name or "this measure",
+                explain_dax.strip(),
+                explain_context or "",
+            )
+            expr_u = explain_dax.upper()
+            funcs_found = [fn for fn in [
+                "CALCULATE", "SUMX", "FILTER", "ALL", "ALLSELECTED", "USERELATIONSHIP",
+                "DIVIDE", "IF", "SWITCH", "DATEADD", "DATESYTD", "SAMEPERIODLASTYEAR",
+                "RANKX", "TOPN", "VAR", "RETURN", "DISTINCTCOUNT",
+            ] if fn in expr_u]
+            cols_found = re.findall(r"\[([^\]]+)\]", explain_dax)
+            st.markdown("#### 📋 Local Analysis Result")
+            st.info(desc)
+            c1, c2 = st.columns(2)
+            with c1:
+                st.markdown("**DAX functions detected:**")
+                if funcs_found:
+                    for fn in funcs_found:
+                        st.markdown(f"- `{fn}`")
+                else:
+                    st.markdown("- *(none detected)*")
+            with c2:
+                st.markdown("**Columns / measures referenced:**")
+                if cols_found:
+                    for c in list(dict.fromkeys(cols_found))[:10]:
+                        st.markdown(f"- `[{c}]`")
+                else:
+                    st.markdown("- *(none detected)*")
+            st.caption(
+                "⚡ This is a rule-based local analysis — no AI, no data leaves your machine.  \n"
+                "For a full step-by-step AI explanation, select **Groq (Free)** in the sidebar "
+                "and get a free key at [console.groq.com](https://console.groq.com/keys) (takes ~1 min)."
+            )
         elif not api_key:
             st.error("Enter your API key in the sidebar.")
         else:
@@ -626,6 +661,42 @@ with tab_fix:
     if st.button("🔧 Diagnose & Fix", type="primary", key="btn_fix", use_container_width=True):
         if not fix_dax.strip():
             st.warning("Paste a DAX expression first.")
+        elif provider == "⚡ Local (No API — instant)":
+            expr = fix_dax.strip()
+            issues: list[str] = []
+            tips:   list[str] = []
+
+            if expr.count("(") != expr.count(")"):
+                issues.append("🔴 **Unbalanced parentheses** — `(` and `)` count don't match. Check every function call is closed.")
+            if expr.count('"') % 2 != 0:
+                issues.append("🔴 **Unmatched quotes** — odd number of `\"` characters found.")
+            if re.search(r'\bIF\b.*,\s*,', expr, re.IGNORECASE):
+                issues.append("🔴 **Empty IF branch** — `IF(..., ,)` has a blank TRUE result. Provide a value or `BLANK()`.")
+            if re.search(r'FILTER\s*\(\s*ALL\s*\(', expr, re.IGNORECASE):
+                tips.append("💡 `FILTER(ALL(...))` pattern detected — this is a common performance anti-pattern. "
+                            "Prefer `CALCULATETABLE(..., REMOVEFILTERS(...))` where possible.")
+            if re.search(r'\bIF\b[^,]+,\s*\d+\s*,\s*\d+', expr, re.IGNORECASE):
+                tips.append("💡 `IF` returning numeric constants — consider `DIVIDE()` or `SWITCH()` for cleaner logic.")
+            if re.search(r'\bDIVIDE\s*\([^,]+,[^,)]+\)', expr, re.IGNORECASE):
+                tips.append("💡 `DIVIDE()` missing 3rd argument — add a default value (e.g. `0` or `BLANK()`) to avoid unintended blanks.")
+            if re.search(r'\bSUMX\s*\(\s*\w+\s*,\s*\[', expr, re.IGNORECASE):
+                tips.append("💡 `SUMX` over a simple column — `SUM([Column])` is faster when no row-level calculation is needed.")
+
+            st.markdown("#### 🔍 Local Syntax & Pattern Check")
+            if issues:
+                st.markdown("**Issues found:**")
+                for iss in issues:
+                    st.markdown(iss)
+            else:
+                st.success("✅ No obvious syntax errors detected locally.")
+            if tips:
+                st.markdown("**Suggestions:**")
+                for t in tips:
+                    st.markdown(t)
+            st.caption(
+                "⚡ Local mode checks syntax and known anti-patterns only.  \n"
+                "For a full AI-powered diagnosis with a corrected rewrite, select **Groq (Free)** in the sidebar."
+            )
         elif not api_key:
             st.error("Enter your API key in the sidebar.")
         else:
@@ -694,6 +765,48 @@ with tab_opt:
     if st.button("⚡ Optimise", type="primary", key="btn_opt", use_container_width=True):
         if not opt_dax.strip():
             st.warning("Paste a DAX expression first.")
+        elif provider == "⚡ Local (No API — instant)":
+            expr = opt_dax.strip()
+            expr_u = expr.upper()
+            anti_patterns: list[tuple[str, str]] = []
+
+            if re.search(r'\b(SUMX|AVERAGEX|MAXX|MINX)\s*\(.*\b(SUMX|AVERAGEX|MAXX|MINX)\b', expr_u, re.DOTALL):
+                anti_patterns.append(("🔴 Nested iterator",
+                    "Nested SUMX/AVERAGEX forces row-by-row evaluation at every level — very slow on large tables. "
+                    "Refactor using CALCULATE + SUM where possible."))
+            if re.search(r"FILTER\s*\(\s*(?!ALL\b|VALUES\b|CALCULATETABLE\b)'?[A-Za-z]", expr, re.IGNORECASE):
+                anti_patterns.append(("🔴 FILTER on whole table",
+                    "`FILTER(<Table>, ...)` scans every row. Use `CALCULATE(..., <condition>)` instead — "
+                    "VertiPaq can apply it as a column filter without iterating rows."))
+            if re.search(r'IFERROR\s*\(.*\b(CALCULATE|FILTER|SUMX)\b', expr_u, re.DOTALL):
+                anti_patterns.append(("🟡 IFERROR wrapping heavy expression",
+                    "`IFERROR` forces the engine to evaluate the expression twice on error. "
+                    "Use `DIVIDE()` for division or check conditions with `IF`/`ISBLANK` instead."))
+            if re.search(r'\bIF\b.*ISBLANK', expr_u):
+                anti_patterns.append(("🟡 IF + ISBLANK pattern",
+                    "Combine into `IF(ISBLANK(x), ...)` — already fine — but consider `COALESCE(x, default)` for simpler DAX."))
+            if not re.search(r'\bVAR\b', expr_u) and expr_u.count('CALCULATE') > 2:
+                anti_patterns.append(("🟡 Multiple CALCULATE calls without VAR",
+                    "Repeated CALCULATE evaluations can be refactored using `VAR` to compute sub-expressions once."))
+
+            score = max(0, 100 - len([a for a in anti_patterns if a[0].startswith("🔴")]) * 25
+                                 - len([a for a in anti_patterns if a[0].startswith("🟡")]) * 10)
+            label = "Good ✅" if score >= 80 else "Fair ⚠️" if score >= 55 else "Poor 🔴"
+
+            st.markdown("#### ⚡ Local Performance Analysis")
+            st.metric("Performance Rating", label, f"Score: {score}/100")
+
+            if anti_patterns:
+                st.markdown("**Anti-patterns detected:**")
+                for title, detail in anti_patterns:
+                    with st.expander(title):
+                        st.markdown(detail)
+            else:
+                st.success("✅ No common anti-patterns detected. DAX looks clean!")
+            st.caption(
+                "⚡ Local mode uses static pattern matching — no AI, no data leaves your machine.  \n"
+                "For an AI-generated optimised rewrite, select **Groq (Free)** in the sidebar."
+            )
         elif not api_key:
             st.error("Enter your API key in the sidebar.")
         else:
