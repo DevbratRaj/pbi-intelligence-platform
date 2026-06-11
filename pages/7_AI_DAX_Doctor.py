@@ -62,8 +62,34 @@ if str(_HERE) not in sys.path:
 from pbit_extractor import extract_pbit_metadata
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Auto-load credentials from Streamlit secrets (never committed to git)
+# ─────────────────────────────────────────────────────────────────────────────
+def _secret(key: str, default: str = "") -> str:
+    try:
+        return st.secrets.get(key, default) or default
+    except Exception:
+        return default
+
+_SECRET_GITHUB = _secret("GITHUB_TOKEN")
+_SECRET_GROQ   = _secret("GROQ_API_KEY")
+_SECRET_OPENAI = _secret("OPENAI_API_KEY")
+
+# Pick the best default provider based on available secrets
+if "dax_doc_provider" not in st.session_state:
+    if _SECRET_GITHUB:
+        st.session_state["dax_doc_provider"] = "GitHub Models"
+    elif _SECRET_GROQ:
+        st.session_state["dax_doc_provider"] = "Groq (Free)"
+    elif _SECRET_OPENAI:
+        st.session_state["dax_doc_provider"] = "OpenAI"
+    else:
+        st.session_state["dax_doc_provider"] = "⚡ Local (No API — instant)"
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Sidebar — API key + model config
 # ─────────────────────────────────────────────────────────────────────────────
+_PROVIDERS = ["⚡ Local (No API — instant)", "Ollama (Local — Free)", "Groq (Free)", "GitHub Models", "OpenAI", "Azure OpenAI"]
+
 with st.sidebar:
     st.markdown("<h1>PBI Intelligence Platform</h1>", unsafe_allow_html=True)
     st.markdown("---")
@@ -71,8 +97,8 @@ with st.sidebar:
 
     provider = st.radio(
         "Provider",
-        ["⚡ Local (No API — instant)", "Ollama (Local — Free)", "Groq (Free)", "GitHub Models", "OpenAI", "Azure OpenAI"],
-        index=0,
+        _PROVIDERS,
+        index=_PROVIDERS.index(st.session_state["dax_doc_provider"]),
         key="dax_doc_provider",
     )
 
@@ -135,12 +161,16 @@ with st.sidebar:
             "Get free API key at console.groq.com →</a></div>",
             unsafe_allow_html=True,
         )
-        api_key = st.text_input(
-            "Groq API Key",
-            type="password",
-            key="dax_doc_api_key",
-            placeholder="gsk_...",
-        )
+        if _SECRET_GROQ:
+            st.caption("✅ Groq key loaded from secrets.")
+            api_key = _SECRET_GROQ
+        else:
+            api_key = st.text_input(
+                "Groq API Key",
+                type="password",
+                key="dax_doc_api_key",
+                placeholder="gsk_...",
+            )
         model = st.selectbox(
             "Model",
             ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768"],
@@ -150,20 +180,28 @@ with st.sidebar:
         azure_deployment = None
 
     elif provider == "GitHub Models":
-        st.markdown(
-            "<div style='background:#eff6ff;border-radius:8px;padding:10px 12px;margin-bottom:8px'>"
-            "ℹ️ Requires a <strong>fine-grained</strong> GitHub PAT.<br/>"
-            "<a href='https://github.com/settings/personal-access-tokens/new' "
-            "target='_blank' style='color:#1d4ed8;font-size:.85rem'>"
-            "Create fine-grained token →</a></div>",
-            unsafe_allow_html=True,
-        )
-        api_key = st.text_input(
-            "GitHub Token",
-            type="password",
-            key="dax_doc_api_key",
-            placeholder="github_pat_...",
-        )
+        if _SECRET_GITHUB:
+            st.markdown(
+                "<div style='background:#f0fdf4;border-radius:8px;padding:10px 12px;margin-bottom:8px'>"
+                "✅ <strong>GitHub token loaded from secrets.</strong> Ready to use — no input needed.</div>",
+                unsafe_allow_html=True,
+            )
+            api_key = _SECRET_GITHUB
+        else:
+            st.markdown(
+                "<div style='background:#eff6ff;border-radius:8px;padding:10px 12px;margin-bottom:8px'>"
+                "ℹ️ Requires a <strong>fine-grained</strong> GitHub PAT.<br/>"
+                "<a href='https://github.com/settings/personal-access-tokens/new' "
+                "target='_blank' style='color:#1d4ed8;font-size:.85rem'>"
+                "Create fine-grained token →</a></div>",
+                unsafe_allow_html=True,
+            )
+            api_key = st.text_input(
+                "GitHub Token",
+                type="password",
+                key="dax_doc_api_key",
+                placeholder="github_pat_...",
+            )
         model = st.selectbox(
             "Model",
             ["gpt-4o", "gpt-4o-mini", "Meta-Llama-3.1-70B-Instruct"],
@@ -173,12 +211,16 @@ with st.sidebar:
         azure_deployment = None
 
     elif provider == "OpenAI":
-        api_key = st.text_input(
-            "OpenAI API Key",
-            type="password",
-            key="dax_doc_api_key",
-            placeholder="sk-...",
-        )
+        if _SECRET_OPENAI:
+            st.caption("✅ OpenAI key loaded from secrets.")
+            api_key = _SECRET_OPENAI
+        else:
+            api_key = st.text_input(
+                "OpenAI API Key",
+                type="password",
+                key="dax_doc_api_key",
+                placeholder="sk-...",
+            )
         model = st.selectbox(
             "Model",
             ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo"],
