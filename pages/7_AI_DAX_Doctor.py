@@ -101,22 +101,50 @@ _PROVIDERS = [
     "Azure OpenAI",
 ]
 
+# Determine active provider label for status badge
+_active_label = st.session_state.get("dax_doc_provider", _PROVIDERS[0])
+if _active_label not in _PROVIDERS:
+    _active_label = _PROVIDERS[0]
+
+# Active model display
+_model_display = {
+    "GitHub Models (Claude / GPT-4o)": "GPT-4o  ·  GitHub Models",
+    "Anthropic (Claude)":              "Claude Sonnet  ·  Anthropic",
+    "Groq (Free)":                     "Llama 3.3  ·  Groq",
+    "Ollama (Local — Free)":           "Ollama  ·  Local",
+    "OpenAI":                          "GPT-4o  ·  OpenAI",
+    "Azure OpenAI":                    "GPT-4o  ·  Azure",
+    "⚡ Local (No API — instant)":     "Rule-based  ·  Offline",
+}
+
 with st.sidebar:
     st.markdown("<h1>PBI Intelligence Platform</h1>", unsafe_allow_html=True)
     st.markdown("---")
-    st.markdown("### 🔑 AI Configuration")
 
-    _default_idx = _PROVIDERS.index(
-        st.session_state.get("dax_doc_provider", _PROVIDERS[0])
-        if st.session_state.get("dax_doc_provider") in _PROVIDERS
-        else _PROVIDERS[0]
+    # ── Compact AI status badge ──────────────────────────────────────────────
+    _is_ai_ready = _active_label != "⚡ Local (No API — instant)"
+    _badge_color = "#f0fdf4" if _is_ai_ready else "#fefce8"
+    _badge_icon  = "🤖" if _is_ai_ready else "⚡"
+    st.markdown(
+        f"<div style='background:{_badge_color};border-radius:8px;padding:8px 12px;margin-bottom:4px;'>"
+        f"{_badge_icon} <strong>AI:</strong> {_model_display.get(_active_label, _active_label)}"
+        f"</div>",
+        unsafe_allow_html=True,
     )
-    provider = st.radio(
-        "Provider",
-        _PROVIDERS,
-        index=_default_idx,
-        key="dax_doc_provider",
-    )
+
+    # ── Hidden expander to switch provider ──────────────────────────────────
+    with st.expander("⚙️ Change AI provider", expanded=False):
+        _default_idx = _PROVIDERS.index(_active_label)
+        provider = st.radio(
+            "Provider",
+            _PROVIDERS,
+            index=_default_idx,
+            key="dax_doc_provider",
+        )
+    st.markdown("---")
+
+# provider is always the session-state value (radio updates it on change)
+provider = st.session_state.get("dax_doc_provider", _PROVIDERS[0])
 
     if provider == "⚡ Local (No API — instant)":
         st.markdown(

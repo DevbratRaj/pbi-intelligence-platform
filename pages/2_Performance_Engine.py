@@ -3,8 +3,32 @@ import zipfile
 import io
 import json
 import re
+import sys
 import pandas as pd
+from pathlib import Path
 from collections import deque, defaultdict
+
+_HERE_PERF = Path(__file__).parent.parent
+if str(_HERE_PERF) not in sys.path:
+    sys.path.insert(0, str(_HERE_PERF))
+try:
+    from ai_helper import ai_call, ai_available
+    _AI_ON = ai_available()
+except Exception:
+    _AI_ON = False
+    def ai_call(*a, **kw): return ""
+    def ai_available(): return False
+
+_HERE = Path(__file__).parent.parent
+if str(_HERE) not in sys.path:
+    sys.path.insert(0, str(_HERE))
+try:
+    from ai_helper import ai_call, ai_available
+    _AI_ON = ai_available()
+except Exception:
+    _AI_ON = False
+    def ai_call(*a, **kw): return ""
+    def ai_available(): return False
 
 st.set_page_config(
     page_title="Performance Engine — PBI Intelligence Platform",
@@ -2142,6 +2166,29 @@ def _render_finding(f: dict, usage_ctx: dict | None = None) -> None:
                 f'<span style="font-size:0.88rem">{rewrite_explanation}</span></div>',
                 unsafe_allow_html=True,
             )
+
+    # ── AI Deep-Dive ──────────────────────────────────────────────────────────
+    if _AI_ON:
+        _ai_btn_key   = f"ai_perf_{hash(f['measure'] + f['table'] + f['expression']) & 0xFFFFFF}"
+        _ai_cache_key = f"ai_result_{_ai_btn_key}"
+        if st.button("🧠 AI Deep-Dive", key=_ai_btn_key,
+                     help="Get a detailed AI explanation and exact fix for this issue"):
+            with st.spinner("GPT-4o analysing…"):
+                try:
+                    _resp = ai_call(
+                        "You are a senior Power BI DAX performance engineer. "
+                        "Give a clear deep-dive on this performance issue. "
+                        "Include: root cause, business impact, exact DAX fix with code block, and how to test. "
+                        "Use markdown headers and bullet points. Keep it concise.",
+                        f"Measure: {f['measure']}\nTable: {f['table']}\n"
+                        f"Issue: {f['detail']}\nRecommendation: {f['recommendation']}\n"
+                        f"DAX:\n{f['expression'][:800]}"
+                    )
+                    st.session_state[_ai_cache_key] = _resp
+                except Exception as _e:
+                    st.session_state[_ai_cache_key] = f"❌ {_e}"
+        if _ai_cache_key in st.session_state:
+            st.markdown(st.session_state[_ai_cache_key])
 
 
 def _render_section(title: str, findings: list[dict], usage_ctx: dict | None = None) -> None:

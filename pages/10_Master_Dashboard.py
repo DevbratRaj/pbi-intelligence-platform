@@ -93,6 +93,13 @@ _HERE = Path(__file__).parent.parent
 if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 from pbit_extractor import extract_pbit_metadata
+try:
+    from ai_helper import ai_call, ai_available
+    _AI_ON = ai_available()
+except Exception:
+    _AI_ON = False
+    def ai_call(*a, **kw): return ""
+    def ai_available(): return False
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Page header
@@ -391,6 +398,53 @@ fig_gauge.update_layout(
     height=260,
 )
 st.plotly_chart(fig_gauge, use_container_width=True)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# AI Executive Summary
+# ─────────────────────────────────────────────────────────────────────────────
+if _AI_ON:
+    st.markdown('<p class="section-hdr">🧠 AI Executive Summary</p>', unsafe_allow_html=True)
+    _summ_key = f"ai_exec_summary_{len(raw_bytes)}"
+    if _summ_key not in st.session_state:
+        if st.button("✨ Generate AI Summary", type="primary", use_container_width=True,
+                     help="GPT-4o reads all scores and top issues to write a plain-English executive brief"):
+            with st.spinner("GPT-4o writing executive summary…"):
+                try:
+                    _issue_lines = "\n".join(
+                        f"- [{e}] {i if isinstance(i, str) else i.get('Issue', str(i))}"
+                        for e, issues, _ in [
+                            ("Performance",    perf_issues,   perf_score),
+                            ("Data Quality",   dq_issues,     dq_score),
+                            ("Governance",     gov_issues,    gov_score),
+                            ("Documentation",  doc_issues,    doc_score),
+                            ("Business Impact",biz_issues,    biz_score),
+                        ]
+                        for i in issues[:3]
+                    ) or "No significant issues found."
+                    _summ = ai_call(
+                        "You are a Power BI expert writing a concise executive summary for a stakeholder. "
+                        "Be direct, professional, and action-oriented. Use bullet points. Max 200 words.",
+                        f"Report: {fname}\n"
+                        f"Overall Health Score: {overall_score}/100\n"
+                        f"Scores — Performance: {perf_score}, Data Quality: {dq_score}, "
+                        f"Governance: {gov_score}, Documentation: {doc_score}, Business Impact: {biz_score}\n"
+                        f"Model: {len(measures)} measures, {len(tables)} tables, {len(columns)} columns\n"
+                        f"Top issues:\n{_issue_lines}\n\n"
+                        "Write a 3-section executive summary: "
+                        "1) Overall Health (1 sentence), "
+                        "2) Key Risks (top 3 bullets), "
+                        "3) Recommended Actions (top 3 priority fixes)"
+                    )
+                    st.session_state[_summ_key] = _summ
+                except Exception as _e:
+                    st.session_state[_summ_key] = f"❌ AI error: {_e}"
+    if _summ_key in st.session_state:
+        st.markdown(
+            f"<div style='background:#f0f4ff;border:1px solid #c7d2fe;border-radius:10px;"
+            f"padding:18px 20px;line-height:1.8;font-size:0.95rem'>"
+            f"{st.session_state[_summ_key].replace(chr(10), '<br>')}</div>",
+            unsafe_allow_html=True,
+        )
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Top issues & quick wins
