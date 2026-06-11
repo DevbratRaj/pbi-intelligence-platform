@@ -146,200 +146,187 @@ with st.sidebar:
 # provider is always the session-state value (radio updates it on change)
 provider = st.session_state.get("dax_doc_provider", _PROVIDERS[0])
 
-    if provider == "⚡ Local (No API — instant)":
-        st.markdown(
-            "<div style='background:#f0fdf4;border-radius:8px;padding:10px 12px;margin-bottom:8px'>"
-            "⚡ <strong>No API key needed.</strong> Descriptions are generated instantly on your PC "
-            "by analysing the DAX expression — no data ever leaves your machine.</div>",
-            unsafe_allow_html=True,
-        )
-        api_key = "local"
-        azure_endpoint = None
-        azure_deployment = None
-        model = "local"
+if provider == "⚡ Local (No API — instant)":
+    st.sidebar.markdown(
+        "<div style='background:#f0fdf4;border-radius:8px;padding:10px 12px;margin-bottom:8px'>"
+        "⚡ <strong>No API key needed.</strong> Descriptions are generated instantly on your PC "
+        "by analysing the DAX expression — no data ever leaves your machine.</div>",
+        unsafe_allow_html=True,
+    )
+    api_key = "local"
+    azure_endpoint = None
+    azure_deployment = None
+    model = "local"
 
-    elif provider == "Ollama (Local — Free)":
-        st.markdown(
-            "<div style='background:#f0fdf4;border-radius:8px;padding:10px 12px;margin-bottom:8px'>"
-            "🖥️ <strong>Runs entirely on your PC</strong> — no account, no key, no data leaves your machine.<br/>"
-            "<small>Need Ollama? <a href='https://ollama.com/download' target='_blank' style='color:#16a34a'>Download at ollama.com →</a></small></div>",
-            unsafe_allow_html=True,
-        )
-        ollama_host = st.text_input(
-            "Ollama host",
-            value="http://localhost:11434",
-            key="dax_doc_ollama_host",
-        )
-        model = st.selectbox(
-            "Model (must be pulled locally)",
-            ["llama3.2", "llama3.1", "codellama", "mistral", "phi3", "gemma2"],
-            key="dax_doc_model",
-        )
-        api_key = "ollama"  # required by openai SDK but ignored by Ollama
-        azure_endpoint = None
-        azure_deployment = None
+elif provider == "Ollama (Local — Free)":
+    st.sidebar.markdown(
+        "<div style='background:#f0fdf4;border-radius:8px;padding:10px 12px;margin-bottom:8px'>"
+        "🖥️ <strong>Runs entirely on your PC</strong> — no account, no key, no data leaves your machine.<br/>"
+        "<small>Need Ollama? <a href='https://ollama.com/download' target='_blank' style='color:#16a34a'>Download at ollama.com →</a></small></div>",
+        unsafe_allow_html=True,
+    )
+    ollama_host = st.sidebar.text_input(
+        "Ollama host",
+        value="http://localhost:11434",
+        key="dax_doc_ollama_host",
+    )
+    model = st.sidebar.selectbox(
+        "Model (must be pulled locally)",
+        ["llama3.2", "llama3.1", "codellama", "mistral", "phi3", "gemma2"],
+        key="dax_doc_model",
+    )
+    api_key = "ollama"
+    azure_endpoint = None
+    azure_deployment = None
 
-        # Live Ollama reachability check
-        if st.button("🔗 Test Ollama connection", key="ollama_test"):
-            import urllib.request
-            try:
-                with urllib.request.urlopen(
-                    f"{ollama_host.rstrip('/')}/api/tags", timeout=3
-                ) as r:
-                    tags = json.loads(r.read())
-                    model_list = [m["name"] for m in tags.get("models", [])]
-                    if model_list:
-                        st.success(f"✅ Ollama running — {len(model_list)} model(s): {', '.join(model_list[:5])}")
-                    else:
-                        st.warning("Ollama is running but no models are pulled yet.  \n"
-                                   f"Run: `ollama pull {model}`")
-            except Exception:
-                st.error(f"❌ Cannot reach Ollama at `{ollama_host}`.  \n"
-                         "Run `ollama serve` in a terminal first.")
+    if st.sidebar.button("🔗 Test Ollama connection", key="ollama_test"):
+        import urllib.request
+        try:
+            with urllib.request.urlopen(
+                f"{ollama_host.rstrip('/')}/api/tags", timeout=3
+            ) as r:
+                tags = json.loads(r.read())
+                model_list = [m["name"] for m in tags.get("models", [])]
+                if model_list:
+                    st.sidebar.success(f"✅ Ollama running — {len(model_list)} model(s): {', '.join(model_list[:5])}")
+                else:
+                    st.sidebar.warning("Ollama is running but no models are pulled yet.  \n"
+                               f"Run: `ollama pull {model}`")
+        except Exception:
+            st.sidebar.error(f"❌ Cannot reach Ollama at `{ollama_host}`.  \n"
+                     "Run `ollama serve` in a terminal first.")
 
-    elif provider == "Groq (Free)":
-        st.markdown(
-            "<div style='background:#f0fdf4;border-radius:8px;padding:10px 12px;margin-bottom:8px'>"
-            "✅ <strong>Free tier</strong> — fast, no credit card needed.<br/>"
-            "<a href='https://console.groq.com/keys' target='_blank' style='color:#16a34a;font-size:.85rem'>"
-            "Get free API key at console.groq.com →</a></div>",
-            unsafe_allow_html=True,
-        )
-        if _SECRET_GROQ:
-            st.caption("✅ Groq key loaded from secrets.")
-            api_key = _SECRET_GROQ
-        else:
-            api_key = st.text_input(
-                "Groq API Key",
-                type="password",
-                key="dax_doc_api_key",
-                placeholder="gsk_...",
-            )
-        model = st.selectbox(
-            "Model",
-            ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768"],
-            key="dax_doc_model",
-        )
-        azure_endpoint = None
-        azure_deployment = None
-
-    elif provider == "GitHub Models (Claude / GPT-4o)":
-        if _SECRET_GITHUB:
-            st.markdown(
-                "<div style='background:#f0fdf4;border-radius:8px;padding:10px 12px;margin-bottom:8px'>"
-                "✅ <strong>GitHub token loaded from secrets.</strong> Ready to use — no input needed.</div>",
-                unsafe_allow_html=True,
-            )
-            api_key = _SECRET_GITHUB
-        else:
-            st.markdown(
-                "<div style='background:#eff6ff;border-radius:8px;padding:10px 12px;margin-bottom:8px'>"
-                "ℹ️ Requires a GitHub PAT with <strong>Models: Read</strong> permission.<br/>"
-                "<a href='https://github.com/settings/tokens/new' "
-                "target='_blank' style='color:#1d4ed8;font-size:.85rem'>"
-                "Create token →</a></div>",
-                unsafe_allow_html=True,
-            )
-            api_key = st.text_input(
-                "GitHub Token",
-                type="password",
-                key="dax_doc_api_key",
-                placeholder="ghp_...",
-            )
-        model = st.selectbox(
-            "Model",
-            [
-                "gpt-4o",
-                "gpt-4o-mini",
-                "Meta-Llama-3.1-70B-Instruct",
-                "Mistral-large-2407",
-                "Phi-4",
-                "DeepSeek-R1",
-                "xai-grok-3",
-            ],
-            index=0,
-            key="dax_doc_model",
-        )
-        st.caption("💡 For Claude, switch to the **Anthropic (Claude)** provider above.")
-        azure_endpoint = None
-        azure_deployment = None
-
-    elif provider == "Anthropic (Claude)":
-        if _SECRET_ANTHROPIC:
-            st.markdown(
-                "<div style='background:#f0fdf4;border-radius:8px;padding:10px 12px;margin-bottom:8px'>"
-                "✅ <strong>Anthropic key loaded from secrets.</strong> Ready to use.</div>",
-                unsafe_allow_html=True,
-            )
-            api_key = _SECRET_ANTHROPIC
-        else:
-            st.markdown(
-                "<div style='background:#fdf4ff;border-radius:8px;padding:10px 12px;margin-bottom:8px'>"
-                "🟣 Get a key at <a href='https://console.anthropic.com/keys' "
-                "target='_blank' style='color:#7c3aed;font-size:.85rem'>console.anthropic.com →</a></div>",
-                unsafe_allow_html=True,
-            )
-            api_key = st.text_input(
-                "Anthropic API Key",
-                type="password",
-                key="dax_doc_api_key",
-                placeholder="sk-ant-...",
-            )
-        model = st.selectbox(
-            "Model",
-            [
-                "claude-opus-4-5",
-                "claude-sonnet-4-5",
-                "claude-3-7-sonnet-20250219",
-                "claude-3-5-sonnet-20241022",
-                "claude-3-5-haiku-20241022",
-            ],
-            index=1,
-            key="dax_doc_model",
-        )
-        azure_endpoint = None
-        azure_deployment = None
-
-    elif provider == "OpenAI":
-        if _SECRET_OPENAI:
-            st.caption("✅ OpenAI key loaded from secrets.")
-            api_key = _SECRET_OPENAI
-        else:
-            api_key = st.text_input(
-                "OpenAI API Key",
-                type="password",
-                key="dax_doc_api_key",
-                placeholder="sk-...",
-            )
-        model = st.selectbox(
-            "Model",
-            ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo"],
-            key="dax_doc_model",
-        )
-        azure_endpoint = None
-        azure_deployment = None
-
-    else:  # Azure OpenAI
-        api_key = st.text_input(
-            "Azure API Key",
+elif provider == "Groq (Free)":
+    st.sidebar.markdown(
+        "<div style='background:#f0fdf4;border-radius:8px;padding:10px 12px;margin-bottom:8px'>"
+        "✅ <strong>Free tier</strong> — fast, no credit card needed.<br/>"
+        "<a href='https://console.groq.com/keys' target='_blank' style='color:#16a34a;font-size:.85rem'>"
+        "Get free API key at console.groq.com →</a></div>",
+        unsafe_allow_html=True,
+    )
+    if _SECRET_GROQ:
+        st.sidebar.caption("✅ Groq key loaded from secrets.")
+        api_key = _SECRET_GROQ
+    else:
+        api_key = st.sidebar.text_input(
+            "Groq API Key",
             type="password",
             key="dax_doc_api_key",
-            placeholder="Azure key",
+            placeholder="gsk_...",
         )
-        azure_endpoint = st.text_input(
-            "Azure Endpoint",
-            key="dax_doc_azure_endpoint",
-            placeholder="https://YOUR-RESOURCE.openai.azure.com/",
-        )
-        azure_deployment = st.text_input(
-            "Deployment Name",
-            key="dax_doc_azure_deployment",
-            placeholder="gpt-4o",
-        )
-        model = azure_deployment or "gpt-4o"
+    model = st.sidebar.selectbox(
+        "Model",
+        ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768"],
+        key="dax_doc_model",
+    )
+    azure_endpoint = None
+    azure_deployment = None
 
-    st.markdown("---")
-    st.caption("Keys are kept in your browser session only — never saved to disk.")
+elif provider == "GitHub Models (Claude / GPT-4o)":
+    if _SECRET_GITHUB:
+        st.sidebar.markdown(
+            "<div style='background:#f0fdf4;border-radius:8px;padding:10px 12px;margin-bottom:8px'>"
+            "✅ <strong>GitHub token loaded from secrets.</strong> Ready to use — no input needed.</div>",
+            unsafe_allow_html=True,
+        )
+        api_key = _SECRET_GITHUB
+    else:
+        st.sidebar.markdown(
+            "<div style='background:#eff6ff;border-radius:8px;padding:10px 12px;margin-bottom:8px'>"
+            "ℹ️ Requires a GitHub PAT with <strong>Models: Read</strong> permission.<br/>"
+            "<a href='https://github.com/settings/tokens/new' "
+            "target='_blank' style='color:#1d4ed8;font-size:.85rem'>"
+            "Create token →</a></div>",
+            unsafe_allow_html=True,
+        )
+        api_key = st.sidebar.text_input(
+            "GitHub Token",
+            type="password",
+            key="dax_doc_api_key",
+            placeholder="ghp_...",
+        )
+    model = st.sidebar.selectbox(
+        "Model",
+        ["gpt-4o", "gpt-4o-mini", "Meta-Llama-3.1-70B-Instruct",
+         "Mistral-large-2407", "Phi-4", "DeepSeek-R1", "xai-grok-3"],
+        index=0,
+        key="dax_doc_model",
+    )
+    st.sidebar.caption("💡 For Claude, switch to the **Anthropic (Claude)** provider.")
+    azure_endpoint = None
+    azure_deployment = None
+
+elif provider == "Anthropic (Claude)":
+    if _SECRET_ANTHROPIC:
+        st.sidebar.markdown(
+            "<div style='background:#f0fdf4;border-radius:8px;padding:10px 12px;margin-bottom:8px'>"
+            "✅ <strong>Anthropic key loaded from secrets.</strong> Ready to use.</div>",
+            unsafe_allow_html=True,
+        )
+        api_key = _SECRET_ANTHROPIC
+    else:
+        st.sidebar.markdown(
+            "<div style='background:#fdf4ff;border-radius:8px;padding:10px 12px;margin-bottom:8px'>"
+            "🟣 Get a key at <a href='https://console.anthropic.com/keys' "
+            "target='_blank' style='color:#7c3aed;font-size:.85rem'>console.anthropic.com →</a></div>",
+            unsafe_allow_html=True,
+        )
+        api_key = st.sidebar.text_input(
+            "Anthropic API Key",
+            type="password",
+            key="dax_doc_api_key",
+            placeholder="sk-ant-...",
+        )
+    model = st.sidebar.selectbox(
+        "Model",
+        ["claude-opus-4-5", "claude-sonnet-4-5", "claude-3-7-sonnet-20250219",
+         "claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022"],
+        index=1,
+        key="dax_doc_model",
+    )
+    azure_endpoint = None
+    azure_deployment = None
+
+elif provider == "OpenAI":
+    if _SECRET_OPENAI:
+        st.sidebar.caption("✅ OpenAI key loaded from secrets.")
+        api_key = _SECRET_OPENAI
+    else:
+        api_key = st.sidebar.text_input(
+            "OpenAI API Key",
+            type="password",
+            key="dax_doc_api_key",
+            placeholder="sk-...",
+        )
+    model = st.sidebar.selectbox(
+        "Model",
+        ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo"],
+        key="dax_doc_model",
+    )
+    azure_endpoint = None
+    azure_deployment = None
+
+else:  # Azure OpenAI
+    api_key = st.sidebar.text_input(
+        "Azure API Key",
+        type="password",
+        key="dax_doc_api_key",
+        placeholder="Azure key",
+    )
+    azure_endpoint = st.sidebar.text_input(
+        "Azure Endpoint",
+        key="dax_doc_azure_endpoint",
+        placeholder="https://YOUR-RESOURCE.openai.azure.com/",
+    )
+    azure_deployment = st.sidebar.text_input(
+        "Deployment Name",
+        key="dax_doc_azure_deployment",
+        placeholder="gpt-4o",
+    )
+    model = azure_deployment or "gpt-4o"
+
+st.sidebar.markdown("---")
+st.sidebar.caption("Keys are kept in your browser session only — never saved to disk.")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Local DAX description engine (no API needed)
