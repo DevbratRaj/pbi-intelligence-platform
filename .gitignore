@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets / local config
+.env
+*.env
+
+# pbi-tools
+.pbi-tools/
+
+# Streamlit local state
+.streamlit/secrets.toml
+
+# Temp / test files
+refresh_store/
+*.pbit
+*.pbix

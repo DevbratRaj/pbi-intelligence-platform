@@ -1,0 +1,9 @@
+streamlit
+pandas
+openpyxl
+plotly
+requests
+zipfile36
+msal
+pytz
+openai
