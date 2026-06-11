@@ -27,23 +27,38 @@ PBI         = "https://api.powerbi.com/v1.0/myorg"
 STORE_DIR   = Path(__file__).parent.parent / "refresh_store"
 STORE_DIR.mkdir(exist_ok=True)
 
-# ── Azure CLI token ───────────────────────────────────────────────────────────
-_VENV_AZ = Path(__file__).parent.parent.parent / ".venv" / "Scripts" / "az.bat"
-_SYSAZ   = Path(sys.executable).parent / "az.bat"
-_AZ      = str(_VENV_AZ) if _VENV_AZ.exists() else (str(_SYSAZ) if _SYSAZ.exists() else "az")
+# ── Token acquisition — MSAL (no az login needed) ────────────────────────────
+_PBI_SCOPE   = ["https://analysis.windows.net/powerbi/api/.default"]
+_CLIENT_ID   = "04b07795-8542-4c4c-8b8b-6c5c1f2b9543"   # Azure CLI public client (works for personal & org accounts)
+_AUTHORITY   = "https://login.microsoftonline.com/common"
+
+def _msal_app():
+    try:
+        import msal
+    except ImportError:
+        raise RuntimeError("`msal` package not installed. Run: pip install msal")
+    return msal.PublicClientApplication(_CLIENT_ID, authority=_AUTHORITY)
 
 @st.cache_data(ttl=3000, show_spinner=False)
-def get_token() -> str:
-    r = subprocess.run(
-        [_AZ, "account", "get-access-token",
-         "--resource", "https://analysis.windows.net/powerbi/api",
-         "--query", "accessToken", "--output", "tsv"],
-        capture_output=True, text=True, timeout=30, shell=True,
-    )
-    tok = r.stdout.strip()
-    if not tok:
-        raise RuntimeError(r.stderr.strip() or "Empty token — run: az login")
-    return tok
+def get_token_device_code() -> tuple[str, str]:
+    """
+    Start a device-code flow. Returns (user_code, device_auth_url).
+    The user visits the URL, enters the code, and we poll for the token.
+    """
+    app = _msal_app()
+    flow = app.initiate_device_flow(scopes=_PBI_SCOPE)
+    if "error" in flow:
+        raise RuntimeError(f"Device flow error: {flow.get('error_description', flow)}")
+    return flow["user_code"], flow["verification_uri"], flow
+
+def acquire_token_from_flow(flow: dict) -> str:
+    """Poll until user completes the device-code login."""
+    import msal
+    app = _msal_app()
+    result = app.acquire_token_by_device_flow(flow)
+    if "access_token" in result:
+        return result["access_token"]
+    raise RuntimeError(result.get("error_description") or result.get("error") or "Auth failed")
 
 # ── API helpers ───────────────────────────────────────────────────────────────
 def fetch_dataset_name(token, wid, did):
@@ -293,6 +308,59 @@ with st.sidebar:
 # ── Main ──────────────────────────────────────────────────────────────────────
 st.title(f"🔄 Refresh History — Last {days_to_show} Days")
 
+# ── Authentication ────────────────────────────────────────────────────────────
+if "pbi_token" not in st.session_state:
+    st.session_state["pbi_token"] = None
+if "pbi_device_flow" not in st.session_state:
+    st.session_state["pbi_device_flow"] = None
+
+if not st.session_state["pbi_token"]:
+    st.info(
+        "**Sign in to Power BI** to fetch refresh history.\n\n"
+        "Click **Start Sign-In** below — a code will appear. Visit the link, "
+        "enter the code, then click **Complete Sign-In**.",
+        icon="🔐",
+    )
+    col_a, col_b = st.columns(2)
+    with col_a:
+        if st.button("🔐 Start Sign-In", use_container_width=True, type="primary"):
+            try:
+                user_code, url, flow = get_token_device_code()
+                st.session_state["pbi_device_flow"] = flow
+                st.session_state["pbi_device_code"] = user_code
+                st.session_state["pbi_device_url"]  = url
+            except Exception as e:
+                st.error(str(e))
+
+    if st.session_state.get("pbi_device_flow"):
+        st.markdown(
+            f"**Step 1:** Go to → **[{st.session_state['pbi_device_url']}]"
+            f"({st.session_state['pbi_device_url']})**"
+        )
+        st.markdown(
+            f"**Step 2:** Enter code → "
+            f"`{st.session_state['pbi_device_code']}`"
+        )
+        with col_b:
+            if st.button("✅ Complete Sign-In", use_container_width=True):
+                with st.spinner("Checking sign-in…"):
+                    try:
+                        tok = acquire_token_from_flow(st.session_state["pbi_device_flow"])
+                        st.session_state["pbi_token"] = tok
+                        st.session_state["pbi_device_flow"] = None
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Sign-in failed: {e}")
+    st.stop()
+
+token = st.session_state["pbi_token"]
+
+# Sign-out button in sidebar
+with st.sidebar:
+    if st.button("🚪 Sign Out", use_container_width=True):
+        st.session_state["pbi_token"] = None
+        st.rerun()
+
 if not fetch_btn:
     st.info("Enter Dataset IDs in the sidebar and click Fetch.", icon="ℹ️")
     st.stop()
@@ -301,13 +369,6 @@ dataset_ids = [d.strip() for d in datasets_raw.splitlines() if d.strip()]
 if not workspace_id.strip() or not dataset_ids:
     st.error("Need Workspace ID and at least one Dataset ID.")
     st.stop()
-
-with st.spinner("Getting token…"):
-    try:
-        token = get_token()
-    except Exception as e:
-        st.error(str(e))
-        st.stop()
 
 for did in dataset_ids:
     try:
