@@ -27,54 +27,36 @@ PBI         = "https://api.powerbi.com/v1.0/myorg"
 STORE_DIR   = Path(__file__).parent.parent / "refresh_store"
 STORE_DIR.mkdir(exist_ok=True)
 
-# ── Token acquisition — MSAL username/password (ROPC) ────────────────────────
+# ── Token acquisition — MSAL device-code (supports MFA) ────────────────
 _PBI_SCOPE = ["https://analysis.windows.net/powerbi/api/.default"]
 _CLIENT_ID = "04b07795-8542-4c4c-8b8b-6c5c1f2b9543"  # Azure CLI public client
 
-def _discover_tenant(email: str) -> str:
-    """Auto-discover tenant ID from the email's domain via OIDC metadata."""
-    domain = email.strip().split("@")[-1]
-    try:
-        r = requests.get(
-            f"https://login.microsoftonline.com/{domain}/.well-known/openid-configuration",
-            timeout=10,
-        )
-        if r.ok:
-            issuer = r.json().get("issuer", "")
-            # issuer = https://login.microsoftonline.com/{tenant_guid}/v2.0
-            for part in issuer.rstrip("/").split("/"):
-                if len(part) == 36 and part.count("-") == 4:
-                    return part
-    except Exception:
-        pass
-    return domain  # fallback: use domain directly as authority
-
-def _msal_app(tenant: str):
+def _msal_app():
     try:
         import msal
     except ImportError:
         raise RuntimeError("`msal` package not installed. Run: pip install msal")
-    authority = f"https://login.microsoftonline.com/{tenant}"
-    return msal.PublicClientApplication(_CLIENT_ID, authority=authority)
-
-def acquire_token_by_password(username: str, password: str) -> str:
-    """Sign in with Power BI work email + password. Tenant is auto-discovered."""
-    tenant = _discover_tenant(username)
-    app = _msal_app(tenant)
-    accounts = app.get_accounts(username=username)
-    if accounts:
-        result = app.acquire_token_silent(_PBI_SCOPE, account=accounts[0])
-        if result and "access_token" in result:
-            return result["access_token"]
-    result = app.acquire_token_by_username_password(
-        username=username.strip(),
-        password=password,
-        scopes=_PBI_SCOPE,
+    # 'organizations' works for any work/school account
+    return msal.PublicClientApplication(
+        _CLIENT_ID,
+        authority="https://login.microsoftonline.com/organizations",
     )
+
+def start_device_flow() -> dict:
+    """Initiate device-code flow and return the flow dict."""
+    app = _msal_app()
+    flow = app.initiate_device_flow(scopes=_PBI_SCOPE)
+    if "error" in flow:
+        raise RuntimeError(flow.get("error_description", str(flow)))
+    return flow
+
+def complete_device_flow(flow: dict) -> str:
+    """Poll until the user completes login (MFA included) and return access token."""
+    app = _msal_app()
+    result = app.acquire_token_by_device_flow(flow)
     if "access_token" in result:
         return result["access_token"]
-    err = result.get("error_description") or result.get("error") or str(result)
-    raise RuntimeError(err)
+    raise RuntimeError(result.get("error_description") or result.get("error") or "Auth failed")
 
 # ── API helpers ───────────────────────────────────────────────────────────────
 def fetch_dataset_name(token, wid, did):
@@ -306,20 +288,9 @@ DEFAULT_DS = "38767ebb-5030-41b3-a15b-23a00bb73cfa"
 
 with st.sidebar:
     st.markdown("### 🔐 Power BI Sign-In")
-    pbi_username = st.text_input(
-        "Work Email",
-        value=st.session_state.get("pbi_username", ""),
-        placeholder="you@company.com",
-    )
-    pbi_password = st.text_input(
-        "Password",
-        type="password",
-        placeholder="Your Power BI password",
-    )
-    sign_in_btn = st.button("🔐 Sign In", use_container_width=True, type="primary",
-                            disabled=not (pbi_username and pbi_password))
-    if pbi_username:
-        st.session_state["pbi_username"] = pbi_username
+    sign_in_btn = st.button("🔐 Sign In with Microsoft", use_container_width=True,
+                            type="primary",
+                            disabled=bool(st.session_state.get("pbi_token")))
     st.markdown("---")
     st.markdown("### �📋 Datasets")
     workspace_id = st.text_input("Workspace ID", value=DEFAULT_WS)
@@ -343,22 +314,46 @@ st.title(f"🔄 Refresh History — Last {days_to_show} Days")
 # ── Authentication ────────────────────────────────────────────────────────────
 if "pbi_token" not in st.session_state:
     st.session_state["pbi_token"] = None
+if "pbi_flow" not in st.session_state:
+    st.session_state["pbi_flow"] = None
 
-# Handle sign-in button click
-if sign_in_btn and pbi_username and pbi_password:
-    with st.spinner("Signing in…"):
-        try:
-            tok = acquire_token_by_password(pbi_username, pbi_password)
-            st.session_state["pbi_token"] = tok
+# Start device flow when Sign In clicked
+if sign_in_btn:
+    try:
+        st.session_state["pbi_flow"] = start_device_flow()
+    except Exception as e:
+        st.error(f"Could not start sign-in: {e}")
+
+# Show instructions + Done button while flow is active
+if st.session_state["pbi_flow"] and not st.session_state["pbi_token"]:
+    flow = st.session_state["pbi_flow"]
+    st.markdown("### 🔐 Sign in to Power BI")
+    st.markdown(
+        f"**Step 1 —** Open this link in your browser (Chrome is fine):  "
+        f"\n\n**[🔗 microsoft.com/devicelogin](https://microsoft.com/devicelogin)**"
+    )
+    st.code(flow["user_code"], language=None)
+    st.caption("Copy the code above, paste it on that page, then complete MFA if prompted.")
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("✅ I’ve signed in — Continue", use_container_width=True, type="primary"):
+            with st.spinner("Verifying…"):
+                try:
+                    tok = complete_device_flow(flow)
+                    st.session_state["pbi_token"] = tok
+                    st.session_state["pbi_flow"] = None
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Sign-in failed: {e}")
+    with col2:
+        if st.button("❌ Cancel", use_container_width=True):
+            st.session_state["pbi_flow"] = None
             st.rerun()
-        except Exception as e:
-            st.error(f"Sign-in failed: {e}")
-            st.stop()
+    st.stop()
 
 if not st.session_state["pbi_token"]:
     st.info(
-        "Enter your **Azure Tenant ID**, **Work Email** and **Password** "
-        "in the sidebar, then click **Sign In**.",
+        "Click **🔐 Sign In with Microsoft** in the sidebar to authenticate with your Power BI account.",
         icon="🔐",
     )
     st.stop()
